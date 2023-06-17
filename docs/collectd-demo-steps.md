@@ -17,7 +17,8 @@ This document has the steps to launch the demo to monitor system metrics gathere
 
 This demo will implement the architecture diagram shown below.
 
-![Image](../png/collectd-metrics-arch.png)
+![Image](../png/collectd-metrics-arch-light.png#gh-light-mode-only)
+![Image](../png/collectd-metrics-arch-dark.png#gh-dark-mode-only)
 
 1. One EC2 instance, named `Linux`, running Ubuntu-22.04 operating system.
 2. The `Linux` instance is the system to be monitored with `collectd`.
