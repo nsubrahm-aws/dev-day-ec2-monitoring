@@ -20,7 +20,8 @@ This document has the steps to launch the demo to monitor Amazon CloudWatch metr
 
 This demo will implement the architecture diagram shown below.
 
-![Image](../png/yace-metrics-arch.png)
+![Image](../png/yace-metrics-arch-light.png#gh-light-mode-only)
+![Image](../png/yace-metrics-arch-dark.png#gh-dark-mode-only)
 
 1. Three EC2 instances, named `nginx-1`, `nginx-2` and `Prometheus` running Ubuntu-22.04 operating system.
 2. An Application Load Balancer (ALB) will forward traffic to `nginx-1` and `nginx-2`.

@@ -9,7 +9,7 @@ This document has the steps to launch the demo to monitor custom metrics gathere
   - [Step 1 - Launch EC2 instance](#step-1---launch-ec2-instance)
   - [Step 2 - Install, configure and launch `statsd` in Repeater mode](#step-2---install-configure-and-launch-statsd-in-repeater-mode)
   - [Step 3 - Set-up Amazon Managed Services for Prometheus](#step-3---set-up-amazon-managed-services-for-prometheus)
-  - [Step 4 - Install, configure and launch Prometheus server](#step-4---install-configure-and-launch-prometheus-server)
+  - [Step 4 - Install, configure and launch ADOT server](#step-4---install-configure-and-launch-adot-server)
   - [Step 5 - Launch NodeJs application](#step-5---launch-nodejs-application)
   - [Step 6 - Install `hey` to simulate client](#step-6---install-hey-to-simulate-client)
   - [Step 7 - Set-up Amazon Managed Grafana](#step-7---set-up-amazon-managed-grafana)
@@ -18,7 +18,8 @@ This document has the steps to launch the demo to monitor custom metrics gathere
 
 This demo will implement the architecture diagram shown below.
 
-![Image](../png/statsd-repeater-architecture.png)
+![Image](../png/statsd-repeater-arch-light.png#gh-light-mode-only)
+![Image](../png/statsd-repeater-arch-dark.png#gh-dark-mode-only)
 
 1. One EC2 instance will be launched named as `Linux`. Open port `4000` from your local environment to test API invocation.
 2. The `statsd` metrics will be gathered by a Prometheus server.
@@ -122,79 +123,53 @@ groups:
       expr: sum(rate(api_metrics[5m])) by (path, status)
 ```
 
-## Step 4 - Install, configure and launch Prometheus server
+## Step 4 - Install, configure and launch ADOT server
 
-Open a new [connection](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html#ec2-connect-to-instance-linux) to the EC2 instance named `Linux` and run the following command to launch Prometheus.
-
-1. Install Prometheus server
+1. Install ADOT.
 
 ```bash
-sudo apt-get update
-export PROMETHEUS_VERSION=2.34.0
-curl -sOL https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}-rc.0/prometheus-${PROMETHEUS_VERSION}-rc.0.linux-amd64.tar.gz
-tar xvzf prometheus-${PROMETHEUS_VERSION}-rc.0.linux-amd64.tar.gz
-export PATH=$PATH:$HOME/prometheus-${PROMETHEUS_VERSION}-rc.0.linux-amd64
-echo "export PROMETHEUS_VERSION=2.34.0" >> $HOME/.profile
-echo "export PATH=$PATH:$HOME/prometheus-${PROMETHEUS_VERSION}-rc.0.linux-amd64" >> $HOME/.profile
+wget https://aws-otel-collector.s3.amazonaws.com/ubuntu/amd64/latest/aws-otel-collector.deb
+sudo dpkg -i -E ./aws-otel-collector.deb 
 ```
 
-2. Copy the following into `prometheus.yaml` to configure Prometheus server. Use `<workspaceId>` from the workspace created in Step 3. Use `regionId` as `ap-southeast-1`.
+2. Save the following into `adot-config.yaml` to configure ADOT. Change `regionId` to `ap-southeast-1` and `workspaceId` to the value copied in Step 5.
 
 ```yaml
-global:
-  scrape_interval: 15s
-  external_labels:
-    monitor: 'statsd_exporter'
+receivers:
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+        external_labels:
+          monitor: 'statsd_repeater_exporter'
 
-scrape_configs:
-  - job_name: 'statsd_exporter'
-    static_configs:
-      - targets: ['localhost:9102']
- 
-remote_write:
-  -
-    url: https://aps-workspaces.<regionId>.amazonaws.com/workspaces/<workspaceId>/api/v1/remote_write
-    queue_config:
-        max_samples_per_send: 1000
-        max_shards: 200
-        capacity: 2500
-    sigv4:
-        region: <regionId>
+      scrape_configs:
+        - job_name: 'statsd_repeater_exporter'
+          static_configs:
+            - targets: ['localhost:9102']
+
+extensions:
+  sigv4auth:
+    region: "regionId"
+
+exporters:
+  prometheusremotewrite:
+    endpoint: https://aps-workspaces.regionId.amazonaws.com/workspaces/workspaceId/api/v1/remote_write
+    auth:
+      authenticator: sigv4auth
+
+service:
+  extensions: [sigv4auth]
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      exporters: [prometheusremotewrite]
 ```
 
-3. Launch Prometheus.
-
-The following instructions are to be followed from the AWS console for launching Amazon Managed Service for Prometheus workspace.
+3. Launch ADOT server.
 
 ```bash
-prometheus --config.file=prometheus.yaml
-```
-
-You should see the following logs.
-
-```bash
-ts=2022-07-24T22:43:13.576Z caller=main.go:476 level=info msg="No time or size retention was set so using the default time retention" duration=15d
-ts=2022-07-24T22:43:13.576Z caller=main.go:513 level=info msg="Starting Prometheus" version="(version=2.34.0-rc.0, branch=HEAD, revision=e25a5992555527d26e53ea4d24e1b8bf16528c58)"
-ts=2022-07-24T22:43:13.576Z caller=main.go:518 level=info build_context="(go=go1.17.7, user=root@6cedbbd2ba09, date=20220228-15:42:03)"
-ts=2022-07-24T22:43:13.576Z caller=main.go:519 level=info host_details="(Linux 5.15.0-1011-aws #14-Ubuntu SMP Wed Jun 1 20:54:22 UTC 2022 x86_64 ip-172-31-18-96 (none))"
-ts=2022-07-24T22:43:13.576Z caller=main.go:520 level=info fd_limits="(soft=1024, hard=1048576)"
-ts=2022-07-24T22:43:13.576Z caller=main.go:521 level=info vm_limits="(soft=unlimited, hard=unlimited)"
-ts=2022-07-24T22:43:13.578Z caller=web.go:540 level=info component=web msg="Start listening for connections" address=0.0.0.0:9090
-ts=2022-07-24T22:43:13.579Z caller=main.go:934 level=info msg="Starting TSDB ..."
-ts=2022-07-24T22:43:13.582Z caller=tls_config.go:195 level=info component=web msg="TLS is disabled." http2=false
-ts=2022-07-24T22:43:13.586Z caller=head.go:493 level=info component=tsdb msg="Replaying on-disk memory mappable chunks if any"
-ts=2022-07-24T22:43:13.586Z caller=head.go:536 level=info component=tsdb msg="On-disk memory mappable chunks replay completed" duration=5.093µs
-ts=2022-07-24T22:43:13.586Z caller=head.go:542 level=info component=tsdb msg="Replaying WAL, this may take a while"
-ts=2022-07-24T22:43:13.586Z caller=head.go:613 level=info component=tsdb msg="WAL segment loaded" segment=0 maxSegment=0
-ts=2022-07-24T22:43:13.587Z caller=head.go:619 level=info component=tsdb msg="WAL replay completed" checkpoint_replay_duration=43.621µs wal_replay_duration=293.707µs total_replay_duration=472.991µs
-ts=2022-07-24T22:43:13.588Z caller=main.go:955 level=info fs_type=EXT4_SUPER_MAGIC
-ts=2022-07-24T22:43:13.588Z caller=main.go:958 level=info msg="TSDB started"
-ts=2022-07-24T22:43:13.588Z caller=main.go:1139 level=info msg="Loading configuration file" filename=prometheus.yaml
-ts=2022-07-24T22:43:13.596Z caller=dedupe.go:112 component=remote level=info remote_name=2156e9 url=https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/ws-191a9a06-efa9-4441-bff3-65d6a9372fcc/api/v1/remote_write msg="Starting WAL watcher" queue=2156e9
-ts=2022-07-24T22:43:13.596Z caller=dedupe.go:112 component=remote level=info remote_name=2156e9 url=https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/ws-191a9a06-efa9-4441-bff3-65d6a9372fcc/api/v1/remote_write msg="Starting scraped metadata watcher"
-ts=2022-07-24T22:43:13.596Z caller=dedupe.go:112 component=remote level=info remote_name=2156e9 url=https://aps-workspaces.ap-southeast-1.amazonaws.com/workspaces/ws-191a9a06-efa9-4441-bff3-65d6a9372fcc/api/v1/remote_write msg="Replaying WAL" queue=2156e9
-ts=2022-07-24T22:43:13.601Z caller=main.go:1176 level=info msg="Completed loading of configuration file" filename=prometheus.yaml totalDuration=13.011172ms db_storage=1.584µs remote_storage=7.480765ms web_handler=1.495µs query_engine=1.808µs scrape=5.116067ms scrape_sd=46.547µs notify=2.442µs notify_sd=3.899µs rules=2.59µs tracing=10.092µs
-ts=2022-07-24T22:43:13.601Z caller=main.go:907 level=info msg="Server is ready to receive web requests."
+sudo /opt/aws/aws-otel-collector/bin/aws-otel-collector-ctl -c adot-config.yaml -a start
 ```
 
 ## Step 5 - Launch NodeJs application
